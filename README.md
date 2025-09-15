@@ -18,7 +18,8 @@
 - [⚡ Get started](#-get-started)
 - [📽️ Video Overview](#️-video-overview)
 - [🔧 Specify CLI Reference](#-specify-cli-reference)
-- [📚 Core philosophy](#-core-philosophy)
+- [� APM Integration](#-apm-integration)
+- [�📚 Core philosophy](#-core-philosophy)
 - [🌟 Development phases](#-development-phases)
 - [🎯 Experimental goals](#-experimental-goals)
 - [🔧 Prerequisites](#-prerequisites)
@@ -82,6 +83,7 @@ The `specify` command supports the following options:
 |-------------|----------------------------------------------------------------|
 | `init`      | Initialize a new Specify project from the latest template      |
 | `check`     | Check for installed tools (`git`, `claude`, `gemini`, `code`/`code-insiders`, `cursor-agent`) |
+| `apm`       | APM - Agent Package Manager commands for Context management   |
 
 ### `specify init` Arguments & Options
 
@@ -124,7 +126,25 @@ specify init my-project --ai claude --debug
 specify check
 ```
 
-## 📚 Core philosophy
+## � APM Integration
+
+Spec Kit includes full APM (Agent Package Manager) functionality for managing modular context packages and files:
+
+### Unified Initialization
+```bash
+# Creates both SDD and APM structures
+specify init my-project --ai claude
+```
+
+### APM Commands
+```bash
+# Core APM commands available under 'apm' subcommand
+specify apm compile          # Generate AGENTS.md from your context
+specify apm install          # Install APM package dependencies  
+specify apm deps list        # List available APM packages
+```
+
+## �📚 Core philosophy
 
 Spec-Driven Development is a structured process that emphasizes:
 
@@ -427,6 +447,7 @@ rm gcm-linux_amd64.2.6.1.deb
 
 - Den Delimarsky ([@localden](https://github.com/localden))
 - John Lam ([@jflam](https://github.com/jflam))
+- Daniel Meppiel [@danielmeppiel](https://github.com/danielmeppiel)
 
 ## 💬 Support
 
