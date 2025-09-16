@@ -1,18 +1,4 @@
-"""Console utility functions fo# Status symbols for consistent iconography
-STATUS_SYMBOLS = {
-    'success': '✓',
-    'sparkles': '✓',
-    'running': '•',
-    'gear': '•',
-    'info': '•', 
-    'warning': '⚠',
-    'error': '✗',
-    'check': '✓',
-    'list': '•',
-    'preview': '•',
-    'robot': '•',
-    'metrics': '•'
-}ng and output."""
+"""Console utility functions for formatting and output."""
 
 import click
 import sys
