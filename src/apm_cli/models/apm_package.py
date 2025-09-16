@@ -123,16 +123,15 @@ class DependencyReference:
                 parsed_url = urllib.parse.urlparse(repo_url)
             else:
                 # Safely construct GitHub URL from various input formats
-                if repo_url.startswith("github.com/"):
-                    # Remove github.com/ prefix to get user/repo part
-                    user_repo = repo_url[len("github.com/"):]
+                parts = repo_url.split("/")
+                if len(parts) >= 3 and parts[0] == "github.com":
+                    # Format: github.com/user/repo (must be precisely so)
+                    user_repo = "/".join(parts[1:3])
+                elif len(parts) >= 2 and "." not in parts[0]:
+                    # Format: user/repo (no dot in user part, so not a domain)
+                    user_repo = "/".join(parts[:2])
                 else:
-                    # For any input that contains a domain-like pattern, reject it unless it's github.com
-                    if "." in repo_url.split("/")[0] and not repo_url.startswith("github.com/"):
-                        raise ValueError(f"Only GitHub repositories are supported. Use 'user/repo' or 'github.com/user/repo' format")
-                    
-                    # Assume it's in user/repo format
-                    user_repo = repo_url
+                    raise ValueError(f"Only GitHub repositories are supported. Use 'user/repo' or 'github.com/user/repo' format")
                 
                 # Validate format before URL construction (security critical)
                 if not user_repo or "/" not in user_repo:
