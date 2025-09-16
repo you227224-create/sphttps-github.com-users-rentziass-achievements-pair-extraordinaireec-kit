@@ -1,6 +1,7 @@
 """APM Package data models and validation logic."""
 
 import re
+import urllib.parse
 import yaml
 from dataclasses import dataclass
 from enum import Enum
@@ -113,7 +114,6 @@ class DependencyReference:
                 repo_part = dependency_str
             
             # SECURITY: Use urllib.parse for all URL validation to avoid substring vulnerabilities
-            import urllib.parse
             
             repo_url = repo_part.strip()
             

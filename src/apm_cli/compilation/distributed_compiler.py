@@ -97,7 +97,6 @@ class DistributedAgentsCompiler:
             # Configuration with defaults aligned to Minimal Context Principle
             config = config or {}
             min_instructions = config.get('min_instructions_per_file', 1)  # Default to 1 for minimal context
-            # max_depth configuration removed - analyze full project depth
             source_attribution = config.get('source_attribution', True)
             debug = config.get('debug', False)
             clean_orphaned = config.get('clean_orphaned', False)

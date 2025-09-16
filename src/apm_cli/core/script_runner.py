@@ -380,9 +380,11 @@ class ScriptRunner:
 class PromptCompiler:
     """Compiles .prompt.md files with parameter substitution."""
     
+    DEFAULT_COMPILED_DIR = Path('.apm/compiled')
+    
     def __init__(self):
         """Initialize compiler."""
-        self.compiled_dir = Path('.apm/compiled')
+        self.compiled_dir = self.DEFAULT_COMPILED_DIR
     
     def compile(self, prompt_file: str, params: Dict[str, str]) -> str:
         """Compile a .prompt.md file with parameter substitution.

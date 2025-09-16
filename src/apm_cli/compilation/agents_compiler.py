@@ -89,7 +89,6 @@ class CompilationConfig:
                 placement_config = compilation_config.get('placement', {})
                 if 'min_instructions_per_file' in placement_config:
                     config.min_instructions_per_file = placement_config['min_instructions_per_file']
-                # max_depth configuration removed - analyze full project structure
                 
                 # Source attribution
                 if 'source_attribution' in compilation_config:
