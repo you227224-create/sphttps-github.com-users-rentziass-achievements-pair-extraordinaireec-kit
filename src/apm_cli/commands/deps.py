@@ -43,44 +43,72 @@ def list_packages():
         if not apm_modules_path.exists():
             if has_rich:
                 console.print("💡 No APM dependencies installed yet", style="cyan")
-                console.print("Run 'apm install' to install dependencies from apm.yml", style="dim")
+                console.print("Run 'specify apm install' to install dependencies from apm.yml", style="dim")
             else:
                 click.echo("💡 No APM dependencies installed yet")
-                click.echo("Run 'apm install' to install dependencies from apm.yml")
+                click.echo("Run 'specify apm install' to install dependencies from apm.yml")
             return
         
-        # Scan for installed packages
+        # Load project dependencies to check for orphaned packages
+        declared_deps = set()
+        try:
+            apm_yml_path = project_root / "apm.yml"
+            if apm_yml_path.exists():
+                project_package = APMPackage.from_apm_yml(apm_yml_path)
+                for dep in project_package.get_apm_dependencies():
+                    declared_deps.add(dep.repo_url)
+        except Exception:
+            pass  # Continue without orphan detection if apm.yml parsing fails
+        
+        # Scan for installed packages in org-namespaced structure
         installed_packages = []
-        for package_dir in apm_modules_path.iterdir():
-            if package_dir.is_dir():
-                try:
-                    # Try to load package metadata
-                    apm_yml_path = package_dir / "apm.yml"
-                    if apm_yml_path.exists():
-                        package = APMPackage.from_apm_yml(apm_yml_path)
-                        # Count context files and workflows separately
-                        context_count, workflow_count = _count_package_files(package_dir)
-                        installed_packages.append({
-                            'name': package.name,
-                            'version': package.version or 'unknown', 
-                            'source': package.source or 'local',
-                            'context': context_count,
-                            'workflows': workflow_count,
-                            'path': package_dir.name
-                        })
-                    else:
-                        # Package without apm.yml - show basic info
-                        context_count, workflow_count = _count_package_files(package_dir)
-                        installed_packages.append({
-                            'name': package_dir.name,
-                            'version': 'unknown',
-                            'source': 'unknown',
-                            'context': context_count,
-                            'workflows': workflow_count,
-                            'path': package_dir.name
-                        })
-                except Exception as e:
-                    click.echo(f"⚠️ Warning: Failed to read package {package_dir.name}: {e}")
+        orphaned_packages = []
+        for org_dir in apm_modules_path.iterdir():
+            if org_dir.is_dir() and not org_dir.name.startswith('.'):
+                for package_dir in org_dir.iterdir():
+                    if package_dir.is_dir() and not package_dir.name.startswith('.'):
+                        try:
+                            # org/repo format
+                            org_repo_name = f"{org_dir.name}/{package_dir.name}"
+                            
+                            # Try to load package metadata
+                            apm_yml_path = package_dir / "apm.yml"
+                            if apm_yml_path.exists():
+                                package = APMPackage.from_apm_yml(apm_yml_path)
+                                # Count context files and workflows separately
+                                context_count, workflow_count = _count_package_files(package_dir)
+                                
+                                # Check if this package is orphaned
+                                is_orphaned = org_repo_name not in declared_deps
+                                if is_orphaned:
+                                    orphaned_packages.append(org_repo_name)
+                                
+                                installed_packages.append({
+                                    'name': org_repo_name,
+                                    'version': package.version or 'unknown', 
+                                    'source': 'orphaned' if is_orphaned else 'github',
+                                    'context': context_count,
+                                    'workflows': workflow_count,
+                                    'path': str(package_dir),
+                                    'is_orphaned': is_orphaned
+                                })
+                            else:
+                                # Package without apm.yml - show basic info
+                                context_count, workflow_count = _count_package_files(package_dir)
+                                is_orphaned = True  # Assume orphaned if no apm.yml
+                                orphaned_packages.append(org_repo_name)
+                                
+                                installed_packages.append({
+                                    'name': org_repo_name,
+                                    'version': 'unknown',
+                                    'source': 'orphaned',
+                                    'context': context_count,
+                                    'workflows': workflow_count,
+                                    'path': str(package_dir),
+                                    'is_orphaned': is_orphaned
+                                })
+                        except Exception as e:
+                            click.echo(f"⚠️ Warning: Failed to read package {org_dir.name}/{package_dir.name}: {e}")
         
         if not installed_packages:
             if has_rich:
@@ -108,6 +136,13 @@ def list_packages():
                 )
             
             console.print(table)
+            
+            # Show orphaned packages warning
+            if orphaned_packages:
+                console.print(f"\n⚠️  {len(orphaned_packages)} orphaned package(s) found (not in apm.yml):", style="yellow")
+                for pkg in orphaned_packages:
+                    console.print(f"  • {pkg}", style="dim yellow")
+                console.print("\n💡 Run 'specify apm prune' to remove orphaned packages", style="cyan")
         else:
             # Fallback text table
             click.echo("📋 APM Dependencies:")
@@ -124,6 +159,13 @@ def list_packages():
                 click.echo(f"│ {name} │ {version} │ {source} │ {context} │ {workflows} │")
             
             click.echo("└─────────────────────┴─────────┴──────────────┴─────────────┴─────────────┘")
+            
+            # Show orphaned packages warning
+            if orphaned_packages:
+                click.echo(f"\n⚠️  {len(orphaned_packages)} orphaned package(s) found (not in apm.yml):")
+                for pkg in orphaned_packages:
+                    click.echo(f"  • {pkg}")
+                click.echo("\n💡 Run 'specify apm prune' to remove orphaned packages")
 
     except Exception as e:
         _rich_error(f"Error listing dependencies: {e}")
@@ -318,7 +360,7 @@ def info(package: str):
     
     if not apm_modules_path.exists():
         _rich_error("No apm_modules/ directory found")
-        _rich_info("Run 'apm install' to install dependencies first")
+        _rich_info("Run 'specify apm install' to install dependencies first")
         sys.exit(1)
     
     # Find the package directory

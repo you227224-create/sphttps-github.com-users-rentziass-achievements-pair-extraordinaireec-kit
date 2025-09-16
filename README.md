@@ -97,6 +97,7 @@ The `specify` command supports the following options:
 | `--here`               | Flag     | Initialize project in the current directory instead of creating a new one   |
 | `--skip-tls`           | Flag     | Skip SSL/TLS verification (not recommended)                                 |
 | `--debug`              | Flag     | Enable detailed debug output for troubleshooting                            |
+| `--use-apm`            | Flag     | Include APM (Agent Package Manager) structure for context management       |
 
 ### Examples
 
@@ -107,14 +108,17 @@ specify init my-project
 # Initialize with specific AI assistant
 specify init my-project --ai claude
 
+# Initialize with APM support
+specify init my-project --ai claude --use-apm
+
 # Initialize with Cursor support
 specify init my-project --ai cursor
 
 # Initialize with PowerShell scripts (Windows/cross-platform)
 specify init my-project --ai copilot --script ps
 
-# Initialize in current directory
-specify init --here --ai copilot
+# Initialize in current directory with APM
+specify init --here --ai copilot --use-apm
 
 # Skip git initialization
 specify init my-project --ai gemini --no-git
@@ -139,9 +143,25 @@ specify init my-project --ai claude
 ### APM Commands
 ```bash
 # Core APM commands available under 'apm' subcommand
-specify apm compile          # Generate AGENTS.md from your context
-specify apm install          # Install APM package dependencies  
-specify apm deps list        # List available APM packages
+
+# Install APM packages from apm.yml
+specify apm install       
+
+# Add APM package to apm.yml and install                      
+specify apm install org/repo   
+
+# Remove package from apm.yml and apm_modules
+specify apm uninstall org/repo              
+
+# Remove orphaned packages not in apm.yml
+specify apm prune   
+
+# List installed APM packages
+specify apm deps list    
+
+# Generate nested optimal AGENTS.md tree
+# Uses installed APM packages and local context files
+specify apm compile                                
 ```
 
 ## �📚 Core philosophy

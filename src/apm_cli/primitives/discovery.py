@@ -157,7 +157,14 @@ def scan_dependency_primitives(base_dir: str, collection: PrimitiveCollection) -
     
     # Process dependencies in declaration order
     for dep_name in dependency_order:
-        dep_path = apm_modules_path / dep_name
+        # Handle org-namespaced structure (e.g., "github/design-guidelines")
+        if "/" in dep_name:
+            org_name, repo_name = dep_name.split("/", 1)
+            dep_path = apm_modules_path / org_name / repo_name
+        else:
+            # Fallback for non-namespaced dependencies
+            dep_path = apm_modules_path / dep_name
+            
         if dep_path.exists() and dep_path.is_dir():
             scan_directory_with_source(dep_path, collection, source=f"dependency:{dep_name}")
 
@@ -180,15 +187,15 @@ def get_dependency_declaration_order(base_dir: str) -> List[str]:
         apm_dependencies = package.get_apm_dependencies()
         
         # Extract package names from dependency references
-        # Use alias if provided, otherwise use repository name
+        # Use alias if provided, otherwise use full org/repo path for org-namespaced structure
         dependency_names = []
         for dep in apm_dependencies:
             if dep.alias:
                 dependency_names.append(dep.alias)
             else:
-                # Extract repository name from repo_url (e.g., "user/repo" -> "repo")
-                repo_name = dep.repo_url.split("/")[-1]
-                dependency_names.append(repo_name)
+                # Use full org/repo path (e.g., "github/design-guidelines")
+                # This matches our org-namespaced directory structure
+                dependency_names.append(dep.repo_url)
         
         return dependency_names
         

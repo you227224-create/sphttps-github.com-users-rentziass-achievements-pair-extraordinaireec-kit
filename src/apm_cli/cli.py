@@ -116,7 +116,53 @@ def _lazy_confirm():
         return None
 
 
-
+def _check_orphaned_packages():
+    """Check for packages in apm_modules/ that are not declared in apm.yml.
+    
+    Returns:
+        List[str]: List of orphaned package names in org/repo format
+    """
+    try:
+        from pathlib import Path
+        
+        # Check if apm.yml exists
+        if not Path('apm.yml').exists():
+            return []
+        
+        # Check if apm_modules exists
+        apm_modules_dir = Path('apm_modules')
+        if not apm_modules_dir.exists():
+            return []
+        
+        # Parse apm.yml to get declared dependencies
+        try:
+            apm_package = APMPackage.from_apm_yml(Path('apm.yml'))
+            declared_deps = apm_package.get_apm_dependencies()
+            declared_repos = set(dep.repo_url for dep in declared_deps)
+            declared_names = set()
+            for dep in declared_deps:
+                if '/' in dep.repo_url:
+                    declared_names.add(dep.repo_url.split('/')[-1])
+                else:
+                    declared_names.add(dep.repo_url)
+        except Exception:
+            return []  # If can't parse apm.yml, assume no orphans
+        
+        # Find installed packages and check for orphans (org-namespaced structure)
+        orphaned_packages = []
+        for org_dir in apm_modules_dir.iterdir():
+            if org_dir.is_dir() and not org_dir.name.startswith('.'):
+                for repo_dir in org_dir.iterdir():
+                    if repo_dir.is_dir() and not repo_dir.name.startswith('.'):
+                        org_repo_name = f"{org_dir.name}/{repo_dir.name}"
+                        
+                        # Check if orphaned
+                        if org_repo_name not in declared_repos:
+                            orphaned_packages.append(org_repo_name)
+        
+        return orphaned_packages
+    except Exception:
+        return []  # Return empty list if any error occurs
 
 
 def _load_template_file(template_name, filename, **variables):
@@ -264,14 +310,124 @@ def init(ctx, project_name, force, yes):
         _rich_error(f"Error initializing project: {e}")
         sys.exit(1)
 
+
+def _validate_and_add_packages_to_apm_yml(packages, dry_run=False):
+    """Validate packages exist and can be accessed, then add to apm.yml dependencies section."""
+    import yaml
+    from pathlib import Path
+    import subprocess
+    import tempfile
+    
+    apm_yml_path = Path('apm.yml')
+    
+    # Read current apm.yml
+    try:
+        with open(apm_yml_path, 'r') as f:
+            data = yaml.safe_load(f) or {}
+    except Exception as e:
+        _rich_error(f"Failed to read apm.yml: {e}")
+        sys.exit(1)
+    
+    # Ensure dependencies structure exists
+    if 'dependencies' not in data:
+        data['dependencies'] = {}
+    if 'apm' not in data['dependencies']:
+        data['dependencies']['apm'] = []
+    
+    current_deps = data['dependencies']['apm'] or []
+    validated_packages = []
+    
+    # First, validate all packages
+    _rich_info(f"Validating {len(packages)} package(s)...")
+    
+    for package in packages:
+        # Validate package format (should be owner/repo)
+        if '/' not in package:
+            _rich_error(f"Invalid package format: {package}. Use 'owner/repo' format.")
+            continue
+            
+        # Check if package is already in dependencies
+        if package in current_deps:
+            _rich_warning(f"Package {package} already exists in apm.yml")
+            continue
+            
+        # Validate package exists and is accessible
+        if _validate_package_exists(package):
+            validated_packages.append(package)
+            _rich_info(f"✓ {package} - accessible")
+        else:
+            _rich_error(f"✗ {package} - not accessible or doesn't exist")
+    
+    if not validated_packages:
+        if dry_run:
+            _rich_warning("No new valid packages to add")
+        return []
+    
+    if dry_run:
+        _rich_info(f"Dry run: Would add {len(validated_packages)} package(s) to apm.yml:")
+        for pkg in validated_packages:
+            _rich_info(f"  + {pkg}")
+        return validated_packages
+    
+    # Add validated packages to dependencies
+    for package in validated_packages:
+        current_deps.append(package)
+        _rich_info(f"Added {package} to apm.yml")
+    
+    # Update dependencies
+    data['dependencies']['apm'] = current_deps
+    
+    # Write back to apm.yml
+    try:
+        with open(apm_yml_path, 'w') as f:
+            yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+        _rich_success(f"Updated apm.yml with {len(validated_packages)} new package(s)")
+    except Exception as e:
+        _rich_error(f"Failed to write apm.yml: {e}")
+        sys.exit(1)
+    
+    return validated_packages
+
+
+def _validate_package_exists(package):
+    """Validate that a package exists and is accessible on GitHub."""
+    import subprocess
+    import tempfile
+    import os
+    
+    # Try to do a shallow clone to test accessibility
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            # Try cloning with minimal fetch
+            cmd = [
+                'git', 'ls-remote', '--heads', '--exit-code',
+                f'https://github.com/{package}.git'
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30  # 30 second timeout
+            )
+            
+            return result.returncode == 0
+            
+        except subprocess.TimeoutExpired:
+            return False
+        except Exception:
+            return False
+
+
 @cli.command(help="Install APM and MCP dependencies from apm.yml")
+@click.argument('packages', nargs=-1)
 @click.option('--runtime', help="Target specific runtime only (copilot, codex, vscode)")
 @click.option('--exclude', help="Exclude specific runtime from installation")
 @click.option('--only', type=click.Choice(['apm', 'mcp']), help="Install only specific dependency type")
 @click.option('--update', is_flag=True, help="Update dependencies to latest Git references")
 @click.option('--dry-run', is_flag=True, help="Show what would be installed without installing")
 @click.pass_context
-def install(ctx, runtime, exclude, only, update, dry_run):
+def install(ctx, packages, runtime, exclude, only, update, dry_run):
     """Install APM and MCP dependencies from apm.yml (like npm install).
     
     This command automatically detects AI runtimes from your apm.yml scripts and installs
@@ -279,18 +435,27 @@ def install(ctx, runtime, exclude, only, update, dry_run):
     dependencies from GitHub repositories.
     
     Examples:
-        apm install                       # Install APM deps then MCP deps for all runtimes  
-        apm install --exclude codex       # Install for all except Codex CLI
-        apm install --only=apm            # Install only APM dependencies
-        apm install --only=mcp            # Install only MCP dependencies
-        apm install --update              # Update dependencies to latest Git refs
-        apm install --dry-run             # Show what would be installed
+        apm install                             # Install existing deps from apm.yml
+        apm install org/pkg1                    # Add package to apm.yml and install
+        apm install org/pkg1 org/pkg2           # Add multiple packages and install
+        apm install --exclude codex             # Install for all except Codex CLI
+        apm install --only=apm                  # Install only APM dependencies
+        apm install --only=mcp                  # Install only MCP dependencies
+        apm install --update                    # Update dependencies to latest Git refs
+        apm install --dry-run                   # Show what would be installed
     """
     try:
         # Check if apm.yml exists
         if not Path('apm.yml').exists():
             _rich_error("No apm.yml found. Run 'apm init' first.")
             sys.exit(1)
+        
+        # If packages are specified, validate and add them to apm.yml first
+        if packages:
+            validated_packages = _validate_and_add_packages_to_apm_yml(packages, dry_run)
+            if not validated_packages and not dry_run:
+                _rich_error("No valid packages to install")
+                sys.exit(1)
         
         _rich_info("Installing dependencies from apm.yml...")
         
@@ -363,6 +528,245 @@ def install(ctx, runtime, exclude, only, update, dry_run):
         sys.exit(1)
 
 
+@cli.command(help="Remove APM packages not listed in apm.yml")
+@click.option('--dry-run', is_flag=True, help="Show what would be removed without removing")
+@click.pass_context
+def prune(ctx, dry_run):
+    """Remove installed APM packages that are not listed in apm.yml (like npm prune).
+    
+    This command cleans up the apm_modules/ directory by removing packages that
+    were previously installed but are no longer declared as dependencies in apm.yml.
+    
+    Examples:
+        apm prune           # Remove orphaned packages
+        apm prune --dry-run # Show what would be removed
+    """
+    try:
+        # Check if apm.yml exists
+        if not Path('apm.yml').exists():
+            _rich_error("No apm.yml found. Run 'specify apm init' first.")
+            sys.exit(1)
+        
+        # Check if apm_modules exists
+        apm_modules_dir = Path('apm_modules')
+        if not apm_modules_dir.exists():
+            _rich_info("No apm_modules/ directory found. Nothing to prune.")
+            return
+        
+        _rich_info("Analyzing installed packages vs apm.yml...")
+        
+        # Parse apm.yml to get declared dependencies
+        try:
+            apm_package = APMPackage.from_apm_yml(Path('apm.yml'))
+            declared_deps = apm_package.get_apm_dependencies()
+            # Keep full org/repo format (e.g., "github/design-guidelines")
+            declared_repos = set()
+            declared_names = set()  # For directory name matching
+            for dep in declared_deps:
+                declared_repos.add(dep.repo_url)
+                # Also track directory names for filesystem matching
+                if '/' in dep.repo_url:
+                    package_name = dep.repo_url.split('/')[-1]
+                    declared_names.add(package_name)
+                else:
+                    declared_names.add(dep.repo_url)
+        except Exception as e:
+            _rich_error(f"Failed to parse apm.yml: {e}")
+            sys.exit(1)
+        
+        # Find installed packages in apm_modules/ (now org-namespaced)
+        installed_packages = {}  # {"github/design-guidelines": "github/design-guidelines"}
+        if apm_modules_dir.exists():
+            for org_dir in apm_modules_dir.iterdir():
+                if org_dir.is_dir() and not org_dir.name.startswith('.'):
+                    # Check if this is an org directory with packages inside
+                    for repo_dir in org_dir.iterdir():
+                        if repo_dir.is_dir() and not repo_dir.name.startswith('.'):
+                            org_repo_name = f"{org_dir.name}/{repo_dir.name}"
+                            installed_packages[org_repo_name] = org_repo_name
+        
+        # Find orphaned packages (installed but not declared)
+        orphaned_packages = {}
+        for org_repo_name, display_name in installed_packages.items():
+            if org_repo_name not in declared_repos:
+                orphaned_packages[org_repo_name] = display_name
+        
+        if not orphaned_packages:
+            _rich_success("No orphaned packages found. apm_modules/ is clean.")
+            return
+        
+        # Show what will be removed
+        _rich_info(f"Found {len(orphaned_packages)} orphaned package(s):")
+        for dir_name, display_name in orphaned_packages.items():
+            if dry_run:
+                _rich_info(f"  - {display_name} (would be removed)")
+            else:
+                _rich_info(f"  - {display_name}")
+        
+        if dry_run:
+            _rich_success("Dry run complete - no changes made")
+            return
+        
+        # Remove orphaned packages
+        removed_count = 0
+        for org_repo_name, display_name in orphaned_packages.items():
+            # Convert org/repo to filesystem path
+            org_name, repo_name = org_repo_name.split('/', 1)
+            pkg_path = apm_modules_dir / org_name / repo_name
+            try:
+                import shutil
+                shutil.rmtree(pkg_path)
+                _rich_info(f"✓ Removed {display_name}")
+                removed_count += 1
+                
+                # Clean up empty org directory
+                org_path = apm_modules_dir / org_name
+                if org_path.exists() and not any(org_path.iterdir()):
+                    org_path.rmdir()
+                    
+            except Exception as e:
+                _rich_error(f"✗ Failed to remove {display_name}: {e}")
+        
+        # Final summary
+        if removed_count > 0:
+            _rich_success(f"Pruned {removed_count} orphaned package(s)")
+        else:
+            _rich_warning("No packages were removed")
+        
+    except Exception as e:
+        _rich_error(f"Error pruning packages: {e}")
+        sys.exit(1)
+
+
+@cli.command(help="Remove APM packages from apm.yml and apm_modules")
+@click.argument('packages', nargs=-1, required=True)
+@click.option('--dry-run', is_flag=True, help="Show what would be removed without removing")
+@click.pass_context
+def uninstall(ctx, packages, dry_run):
+    """Remove APM packages from apm.yml and apm_modules (like npm uninstall).
+    
+    This command removes packages from both the apm.yml dependencies list
+    and the apm_modules/ directory. It's the opposite of 'apm install <package>'.
+    
+    Examples:
+        apm uninstall github/design-guidelines    # Remove one package
+        apm uninstall org/pkg1 org/pkg2           # Remove multiple packages
+        apm uninstall github/pkg --dry-run        # Show what would be removed
+    """
+    try:
+        # Check if apm.yml exists
+        if not Path('apm.yml').exists():
+            _rich_error("No apm.yml found. Run 'apm init' first.")
+            sys.exit(1)
+        
+        if not packages:
+            _rich_error("No packages specified. Specify packages to uninstall.")
+            sys.exit(1)
+        
+        _rich_info(f"Uninstalling {len(packages)} package(s)...")
+        
+        # Read current apm.yml
+        import yaml
+        apm_yml_path = Path('apm.yml')
+        try:
+            with open(apm_yml_path, 'r') as f:
+                data = yaml.safe_load(f) or {}
+        except Exception as e:
+            _rich_error(f"Failed to read apm.yml: {e}")
+            sys.exit(1)
+        
+        # Ensure dependencies structure exists
+        if 'dependencies' not in data:
+            data['dependencies'] = {}
+        if 'apm' not in data['dependencies']:
+            data['dependencies']['apm'] = []
+        
+        current_deps = data['dependencies']['apm'] or []
+        packages_to_remove = []
+        packages_not_found = []
+        
+        # Validate which packages can be removed
+        for package in packages:
+            # Validate package format (should be owner/repo)
+            if '/' not in package:
+                _rich_error(f"Invalid package format: {package}. Use 'owner/repo' format.")
+                continue
+                
+            # Check if package exists in dependencies
+            if package in current_deps:
+                packages_to_remove.append(package)
+                _rich_info(f"✓ {package} - found in apm.yml")
+            else:
+                packages_not_found.append(package)
+                _rich_warning(f"✗ {package} - not found in apm.yml")
+        
+        if not packages_to_remove:
+            _rich_warning("No packages found in apm.yml to remove")
+            return
+        
+        if dry_run:
+            _rich_info(f"Dry run: Would remove {len(packages_to_remove)} package(s):")
+            for pkg in packages_to_remove:
+                _rich_info(f"  - {pkg} from apm.yml")
+                # Check if package exists in apm_modules
+                package_name = pkg.split('/')[-1]
+                apm_modules_dir = Path('apm_modules')
+                if apm_modules_dir.exists() and (apm_modules_dir / package_name).exists():
+                    _rich_info(f"  - {package_name} from apm_modules/")
+            _rich_success("Dry run complete - no changes made")
+            return
+        
+        # Remove packages from apm.yml
+        for package in packages_to_remove:
+            current_deps.remove(package)
+            _rich_info(f"Removed {package} from apm.yml")
+        
+        # Update dependencies in apm.yml
+        data['dependencies']['apm'] = current_deps
+        
+        # Write back to apm.yml
+        try:
+            with open(apm_yml_path, 'w') as f:
+                yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+            _rich_success(f"Updated apm.yml (removed {len(packages_to_remove)} package(s))")
+        except Exception as e:
+            _rich_error(f"Failed to write apm.yml: {e}")
+            sys.exit(1)
+        
+        # Remove packages from apm_modules/
+        apm_modules_dir = Path('apm_modules')
+        removed_from_modules = 0
+        
+        if apm_modules_dir.exists():
+            for package in packages_to_remove:
+                package_name = package.split('/')[-1]  # Extract package name
+                package_path = apm_modules_dir / package_name
+                
+                if package_path.exists():
+                    try:
+                        import shutil
+                        shutil.rmtree(package_path)
+                        _rich_info(f"✓ Removed {package_name} from apm_modules/")
+                        removed_from_modules += 1
+                    except Exception as e:
+                        _rich_error(f"✗ Failed to remove {package_name} from apm_modules/: {e}")
+                else:
+                    _rich_warning(f"Package {package_name} not found in apm_modules/")
+        
+        # Final summary
+        summary_lines = []
+        summary_lines.append(f"Removed {len(packages_to_remove)} package(s) from apm.yml")
+        if removed_from_modules > 0:
+            summary_lines.append(f"Removed {removed_from_modules} package(s) from apm_modules/")
+        
+        _rich_success("Uninstall complete: " + ", ".join(summary_lines))
+        
+        if packages_not_found:
+            _rich_warning(f"Note: {len(packages_not_found)} package(s) were not found in apm.yml")
+        
+    except Exception as e:
+        _rich_error(f"Error uninstalling packages: {e}")
+        sys.exit(1)
 
 def _install_apm_dependencies(apm_package: 'APMPackage', update_refs: bool = False):
     """Install APM package dependencies.
@@ -412,13 +816,22 @@ def _install_apm_dependencies(apm_package: 'APMPackage', update_refs: bool = Fal
         installed_count = 0
         
         for dep_ref in deps_to_install:
-            # Determine installation directory (use alias if provided, otherwise repo name)
+            # Determine installation directory using namespaced structure
+            # e.g., github/design-guidelines -> apm_modules/github/design-guidelines/
             if dep_ref.alias:
+                # If alias is provided, use it directly (assume user handles namespacing)
                 install_name = dep_ref.alias
+                install_path = apm_modules_dir / install_name
             else:
-                install_name = dep_ref.repo_url.split('/')[-1]
-            
-            install_path = apm_modules_dir / install_name
+                # Use org/repo structure to prevent collisions
+                repo_parts = dep_ref.repo_url.split('/')
+                if len(repo_parts) >= 2:
+                    org_name = repo_parts[0]
+                    repo_name = repo_parts[1]
+                    install_path = apm_modules_dir / org_name / repo_name
+                else:
+                    # Fallback for invalid repo URLs
+                    install_path = apm_modules_dir / dep_ref.repo_url
             
             # Skip if already exists and not updating
             if install_path.exists() and not update_refs:
@@ -1239,9 +1652,9 @@ def compile(ctx, output, dry_run, no_links, chatmode, watch, validate, with_cons
             if not apm_modules_exists and not local_apm_exists and not constitution_exists:
                 _rich_warning("No APM dependencies, local .apm/ directory, or constitution found")
                 _rich_info("💡 Nothing to compile. To get started:")
-                _rich_info("   1. Install APM dependencies: apm install")
-                _rich_info("   2. Or initialize APM project: apm init")
-                _rich_info("   3. Then run: apm compile")
+                _rich_info("   1. Install APM dependencies: specify apm install")
+                _rich_info("   2. Or initialize APM project: specify apm init")
+                _rich_info("   3. Then run: specify apm compile")
                 return
         except Exception:
             pass  # Continue with compilation if check fails
@@ -1403,6 +1816,18 @@ def compile(ctx, output, dry_run, no_links, chatmode, watch, validate, with_cons
             for error in result.errors:
                 click.echo(f"  ❌ {error}")
             sys.exit(1)
+
+        # Check for orphaned packages after successful compilation
+        try:
+            orphaned_packages = _check_orphaned_packages()
+            if orphaned_packages:
+                _rich_blank_line()
+                _rich_warning(f"⚠️ Found {len(orphaned_packages)} orphaned package(s) that were included in compilation:")
+                for pkg in orphaned_packages:
+                    _rich_info(f"  • {pkg}")
+                _rich_info("💡 Run 'specify apm prune' to remove orphaned packages")
+        except Exception:
+            pass  # Continue if orphan check fails
 
     except ImportError as e:
         _rich_error(f"Compilation module not available: {e}")

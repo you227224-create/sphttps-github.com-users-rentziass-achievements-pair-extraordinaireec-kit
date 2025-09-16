@@ -55,7 +55,7 @@ from rich.tree import Tree
 from typer.core import TyperGroup
 
 # APM imports
-from apm_cli.cli import init as apm_init, install as apm_install, compile as apm_compile
+from apm_cli.cli import init as apm_init, install as apm_install, compile as apm_compile, prune as apm_prune, uninstall as apm_uninstall
 from apm_cli.commands.deps import deps as apm_deps
 import click
 from click.testing import CliRunner
@@ -318,7 +318,9 @@ def apm_click():
 # Add APM commands to the Click group
 apm_click.add_command(apm_init, name="init")
 apm_click.add_command(apm_install, name="install") 
+apm_click.add_command(apm_uninstall, name="uninstall")
 apm_click.add_command(apm_compile, name="compile")
+apm_click.add_command(apm_prune, name="prune")
 apm_click.add_command(apm_deps, name="deps")
 
 
@@ -352,14 +354,26 @@ def apm_init_wrapper(
 @apm_app.command("install", context_settings={"allow_extra_args": True, "allow_interspersed_args": False}) 
 def apm_install_wrapper(
     ctx: typer.Context,
+    packages: list[str] = typer.Argument(None, help="APM packages to add and install (owner/repo format)"),
     runtime: str = typer.Option(None, "--runtime", help="Target specific runtime only (codex, vscode)"),
     exclude: str = typer.Option(None, "--exclude", help="Exclude specific runtime from installation"),
     only: str = typer.Option(None, "--only", help="Install only specific dependency type (apm or mcp)"),
     update: bool = typer.Option(False, "--update", help="Update dependencies to latest Git references"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be installed without installing"),
 ):
-    """Install APM and MCP dependencies from apm.yml"""
+    """Install APM and MCP dependencies from apm.yml. 
+    
+    Examples:
+        specify apm install                             # Install existing deps from apm.yml
+        specify apm install github/design-guidelines   # Add package and install
+        specify apm install org/pkg1 org/pkg2          # Add multiple packages and install
+    """
     args = []
+    
+    # Add package arguments first
+    if packages:
+        args.extend(packages)
+    
     if runtime:
         args.extend(["--runtime", runtime])
     if exclude:
@@ -421,6 +435,61 @@ def apm_compile_wrapper(
         args.extend(ctx.args)
     
     _run_apm_command(["compile"] + args)
+
+@apm_app.command("prune", context_settings={"allow_extra_args": True, "allow_interspersed_args": False})
+def apm_prune_wrapper(
+    ctx: typer.Context,
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be removed without removing"),
+):
+    """Remove APM packages not listed in apm.yml.
+    
+    This command cleans up the apm_modules/ directory by removing packages that
+    were previously installed but are no longer declared as dependencies in apm.yml.
+    
+    Examples:
+        specify apm prune           # Remove orphaned packages
+        specify apm prune --dry-run # Show what would be removed
+    """
+    args = []
+    if dry_run:
+        args.append("--dry-run")
+    
+    # Add any extra arguments
+    if ctx.args:
+        args.extend(ctx.args)
+    
+    _run_apm_command(["prune"] + args)
+
+@apm_app.command("uninstall", context_settings={"allow_extra_args": True, "allow_interspersed_args": False})
+def apm_uninstall_wrapper(
+    ctx: typer.Context,
+    packages: list[str] = typer.Argument(..., help="APM packages to remove (owner/repo format)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be removed without removing"),
+):
+    """Remove APM packages from apm.yml and apm_modules.
+    
+    This command removes packages from both the apm.yml dependencies list
+    and the apm_modules/ directory. It's the opposite of 'specify apm install <package>'.
+    
+    Examples:
+        specify apm uninstall github/design-guidelines    # Remove one package
+        specify apm uninstall org/pkg1 org/pkg2           # Remove multiple packages
+        specify apm uninstall github/pkg --dry-run        # Show what would be removed
+    """
+    args = []
+    
+    # Add package arguments first
+    if packages:
+        args.extend(packages)
+    
+    if dry_run:
+        args.append("--dry-run")
+    
+    # Add any extra arguments
+    if ctx.args:
+        args.extend(ctx.args)
+    
+    _run_apm_command(["uninstall"] + args)
 
 # Create deps subcommands as Typer sub-application
 deps_app = typer.Typer(
@@ -957,6 +1026,7 @@ def init(
     here: bool = typer.Option(False, "--here", help="Initialize project in the current directory instead of creating a new one"),
     skip_tls: bool = typer.Option(False, "--skip-tls", help="Skip SSL/TLS verification (not recommended)"),
     debug: bool = typer.Option(False, "--debug", help="Show verbose diagnostic output for network and extraction failures"),
+    use_apm: bool = typer.Option(False, "--use-apm", help="Include APM (Agent Package Manager) structure for context management"),
 ):
     """
     Initialize a new Specify project from the latest template.
@@ -968,16 +1038,17 @@ def init(
     4. Extract the template to a new project directory or current directory
     5. Initialize a fresh git repository (if not --no-git and no existing repo)
     6. Optionally set up AI assistant commands
+    7. Optionally include APM support (with --use-apm flag)
     
     Examples:
         specify init my-project
         specify init my-project --ai claude
-        specify init my-project --ai gemini
+        specify init my-project --ai gemini --use-apm
         specify init my-project --ai copilot --no-git
-        specify init my-project --ai cursor
+        specify init my-project --ai cursor --use-apm
         specify init --ignore-agent-tools my-project
         specify init --here --ai claude
-        specify init --here
+        specify init --here --use-apm
     """
     # Show banner first
     show_banner()
@@ -1114,13 +1185,16 @@ def init(
 
             download_and_extract_template(project_path, selected_ai, selected_script, here, verbose=False, tracker=tracker, client=local_client, debug=debug)
 
-            # APM structure creation
-            tracker.start("apm", "setting up APM structure")
-            try:
-                _create_apm_structure(project_path, project_path.name, selected_ai)
-                tracker.complete("apm", "APM structure created")
-            except Exception as e:
-                tracker.error("apm", f"APM setup failed: {str(e)}")
+            # APM structure creation (conditional)
+            if use_apm:
+                tracker.start("apm", "setting up APM structure")
+                try:
+                    _create_apm_structure(project_path, project_path.name, selected_ai)
+                    tracker.complete("apm", "APM structure created")
+                except Exception as e:
+                    tracker.error("apm", f"APM setup failed: {str(e)}")
+            else:
+                tracker.skip("apm", "APM not requested")
 
             # Ensure scripts are executable (POSIX)
             ensure_executable_scripts(project_path, tracker=tracker)
@@ -1192,12 +1266,13 @@ def init(
     step_num += 1
     steps_lines.append(f"{step_num}. Update [bold magenta]CONSTITUTION.md[/bold magenta] with your project's non-negotiable principles")
     
-    # Add APM-specific next steps if available
-    step_num += 1
-    steps_lines.append(f"{step_num}. Use APM commands to manage your AI-native project:")
-    steps_lines.append("   - [bold cyan]specify apm compile[/bold cyan] - Generate AGENTS.md from your context")
-    steps_lines.append("   - [bold cyan]specify apm install[/bold cyan] - Install APM package dependencies")
-    steps_lines.append("   - [bold cyan]specify apm deps list[/bold cyan] - List available APM packages")
+    # Add APM-specific next steps if APM was enabled
+    if use_apm:
+        step_num += 1
+        steps_lines.append(f"{step_num}. Use APM commands to manage your project context:")
+        steps_lines.append("   - [bold cyan]specify apm compile[/bold cyan] - Generate AGENTS.md from APM instructions and packages")
+        steps_lines.append("   - [bold cyan]specify apm install[/bold cyan] - Install APM packages")
+        steps_lines.append("   - [bold cyan]specify apm deps list[/bold cyan] - List installed APM packages")
 
     steps_panel = Panel("\n".join(steps_lines), title="Next steps", border_style="cyan", padding=(1,2))
     console.print()  # blank line
