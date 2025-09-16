@@ -122,27 +122,37 @@ class DependencyReference:
                 # Already a full URL - parse directly
                 parsed_url = urllib.parse.urlparse(repo_url)
             else:
-                # For any other format, try both github.com/ prefix and user/repo formats
-                # Let urllib.parse handle the validation instead of unsafe string operations
-                candidate_urls = [
-                    urllib.parse.urljoin("https://", repo_url),  # Handles github.com/user/repo format
-                    urllib.parse.urljoin("https://github.com/", repo_url)  # Handles user/repo format
-                ]
+                # Safely construct GitHub URL from various input formats
+                if repo_url.startswith("github.com/"):
+                    # Remove github.com/ prefix to get user/repo part
+                    user_repo = repo_url[len("github.com/"):]
+                else:
+                    # For any input that contains a domain-like pattern, reject it unless it's github.com
+                    if "." in repo_url.split("/")[0] and not repo_url.startswith("github.com/"):
+                        raise ValueError(f"Only GitHub repositories are supported. Use 'user/repo' or 'github.com/user/repo' format")
+                    
+                    # Assume it's in user/repo format
+                    user_repo = repo_url
                 
-                parsed_url = None
-                for candidate in candidate_urls:
-                    try:
-                        test_parsed = urllib.parse.urlparse(candidate)
-                        if (test_parsed.netloc == "github.com" and 
-                            test_parsed.path.strip("/") and 
-                            len(test_parsed.path.strip("/").split("/")) >= 2):
-                            parsed_url = test_parsed
-                            break
-                    except Exception:
-                        continue
-                
-                if parsed_url is None:
+                # Validate format before URL construction (security critical)
+                if not user_repo or "/" not in user_repo:
                     raise ValueError(f"Invalid repository format: {repo_url}. Expected 'user/repo' or 'github.com/user/repo'")
+                
+                parts = user_repo.split("/")
+                if len(parts) < 2 or not parts[0] or not parts[1]:
+                    raise ValueError(f"Invalid repository format: {repo_url}. Expected 'user/repo' or 'github.com/user/repo'")
+                
+                user, repo = parts[0], parts[1]
+                
+                # Security: validate characters to prevent injection
+                if not re.match(r'^[a-zA-Z0-9._-]+$', user):
+                    raise ValueError(f"Invalid user name: {user}")
+                if not re.match(r'^[a-zA-Z0-9._-]+$', repo.rstrip('.git')):
+                    raise ValueError(f"Invalid repository name: {repo}")
+                
+                # Safely construct URL - this is now secure
+                github_url = urllib.parse.urljoin("https://github.com/", f"{user}/{repo}")
+                parsed_url = urllib.parse.urlparse(github_url)
             
             # SECURITY: Validate that this is actually a GitHub URL with exact hostname match
             if parsed_url.netloc != "github.com":
