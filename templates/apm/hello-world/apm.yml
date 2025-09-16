@@ -5,5 +5,5 @@ author: {{author}}
 
 dependencies:
   apm:
-    # list of APM packages your package depends on as <owner>/<repo>
+    # list of APM packages as GitHub repositories: <owner>/<repo>
     # - github/design-guidelines
