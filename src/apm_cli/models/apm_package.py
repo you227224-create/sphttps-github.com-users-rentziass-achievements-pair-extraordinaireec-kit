@@ -125,8 +125,8 @@ class DependencyReference:
                 # For any other format, try both github.com/ prefix and user/repo formats
                 # Let urllib.parse handle the validation instead of unsafe string operations
                 candidate_urls = [
-                    f"https://{repo_url}",  # Handles github.com/user/repo format
-                    f"https://github.com/{repo_url}"  # Handles user/repo format
+                    urllib.parse.urljoin("https://", repo_url),  # Handles github.com/user/repo format
+                    urllib.parse.urljoin("https://github.com/", repo_url)  # Handles user/repo format
                 ]
                 
                 parsed_url = None
