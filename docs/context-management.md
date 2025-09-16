@@ -34,7 +34,7 @@ Context_Efficiency = Relevant_Instructions / Total_Instructions_Loaded
 ## Quick Start
 
 ```bash
-specify init my-project --with-apm --ai copilot
+specify init my-project --use-apm --ai copilot
 specify apm install company/design-system  
 specify apm compile  # Mathematical optimization generates distributed AGENTS.md files
 ```

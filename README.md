@@ -144,8 +144,8 @@ Spec Kit includes full APM (Agent Package Manager) functionality for managing mo
 
 ### Unified Initialization
 ```bash
-# The --with-apm flag creates both SDD and APM structures 
-specify init my-project --ai claude --with-apm
+# The --use-apm flag creates both SDD and APM structures 
+specify init my-project --ai claude --use-apm
 ```
 
 ### APM Commands

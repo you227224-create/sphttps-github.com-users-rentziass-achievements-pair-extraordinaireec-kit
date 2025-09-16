@@ -1587,6 +1587,48 @@ def compile(ctx, output, dry_run, no_links, chatmode, watch, validate, with_cons
     • --clean: Remove orphaned AGENTS.md files that are no longer generated
     """
     try:
+        # Check if this is an APM project first
+        from pathlib import Path
+        if not Path('apm.yml').exists():
+            _rich_error("❌ Not an APM project - no apm.yml found")
+            _rich_info("💡 To initialize an APM project, run:")
+            _rich_info("   specify init --use-apm")
+            _rich_info("   # or")  
+            _rich_info("   specify apm init")
+            sys.exit(1)
+
+        # Check if there are any instruction files to compile
+        from .compilation.constitution import find_constitution
+        
+        apm_modules_exists = Path("apm_modules").exists()
+        constitution_exists = find_constitution(Path(".")).exists()
+        
+        # Check if .apm directory has actual content
+        apm_dir = Path(".apm")
+        local_apm_has_content = (apm_dir.exists() and 
+                                (any(apm_dir.rglob("*.instructions.md")) or 
+                                 any(apm_dir.rglob("*.chatmode.md"))))
+        
+        # If no primitive sources exist, check deeper to provide better feedback
+        if not apm_modules_exists and not local_apm_has_content and not constitution_exists:
+            # Check if .apm directories exist but are empty
+            has_empty_apm = apm_dir.exists() and not any(apm_dir.rglob("*.instructions.md")) and not any(apm_dir.rglob("*.chatmode.md"))
+            
+            if has_empty_apm:
+                _rich_error("❌ No instruction files found in .apm/ directory")
+                _rich_info("💡 To add instructions, create files like:")
+                _rich_info("   .apm/instructions/coding-standards.instructions.md")
+                _rich_info("   .apm/chatmodes/backend-engineer.chatmode.md")
+            else:
+                _rich_error("❌ No APM content found to compile")
+                _rich_info("💡 To get started:")
+                _rich_info("   1. Install APM dependencies: specify apm install <owner>/<repo>")
+                _rich_info("   2. Or create local instructions: mkdir -p .apm/instructions")
+                _rich_info("   3. Then create .instructions.md or .chatmode.md files")
+            
+            if not dry_run:  # Don't exit on dry-run to allow testing
+                sys.exit(1)
+
         # Validation-only mode
         if validate:
             _rich_info("Validating APM context...", symbol="gear")
@@ -1639,25 +1681,6 @@ def compile(ctx, output, dry_run, no_links, chatmode, watch, validate, with_cons
                 _rich_info("Verbose mode: showing source attribution and optimizer analysis", symbol="magnifying_glass")
         else:
             _rich_info("Using single-file compilation (legacy mode)", symbol="page")
-
-        # Check if there are any primitives to compile
-        try:
-            from pathlib import Path
-            from .compilation.constitution import find_constitution
-            
-            apm_modules_exists = Path("apm_modules").exists()
-            local_apm_exists = Path(".apm").exists()
-            constitution_exists = find_constitution(Path(".")).exists()
-            
-            if not apm_modules_exists and not local_apm_exists and not constitution_exists:
-                _rich_warning("No APM dependencies, local .apm/ directory, or constitution found")
-                _rich_info("💡 Nothing to compile. To get started:")
-                _rich_info("   1. Install APM dependencies: specify apm install")
-                _rich_info("   2. Or initialize APM project: specify apm init")
-                _rich_info("   3. Then run: specify apm compile")
-                return
-        except Exception:
-            pass  # Continue with compilation if check fails
 
         # Perform compilation
         compiler = AgentsCompiler(".")

@@ -327,7 +327,7 @@ apm_click.add_command(apm_deps, name="deps")
 # Create APM subcommands as Typer commands
 apm_app = typer.Typer(
     name="apm",
-    help="APM - Agent Package Manager commands. Package Agentic workflows and Agent context as code.",
+    help="APM - Agent Package Manager commands for context management.",
     add_completion=False,
 )
 

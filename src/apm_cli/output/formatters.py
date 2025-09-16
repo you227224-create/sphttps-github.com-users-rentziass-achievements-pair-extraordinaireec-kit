@@ -47,7 +47,7 @@ class CompilationFormatter:
         lines.append("")
         
         # Phase 2: Optimization Progress
-        lines.extend(self._format_optimization_progress(results.optimization_decisions))
+        lines.extend(self._format_optimization_progress(results.optimization_decisions, results.project_analysis))
         lines.append("")
         
         # Phase 3: Results Summary
@@ -76,7 +76,7 @@ class CompilationFormatter:
         lines.append("")
         
         # Phase 2: Optimization Progress
-        lines.extend(self._format_optimization_progress(results.optimization_decisions))
+        lines.extend(self._format_optimization_progress(results.optimization_decisions, results.project_analysis))
         lines.append("")
         
         # Phase 3: Mathematical Analysis Section (verbose only)
@@ -163,12 +163,12 @@ class CompilationFormatter:
         # Show distribution of AGENTS.md files
         for summary in results.placement_summaries:
             rel_path = str(summary.get_relative_path(Path.cwd()))
-            instruction_text = f"{summary.instruction_count} instruction{'s' if summary.instruction_count != 1 else ''}"
+            content_text = self._get_placement_description(summary)
             source_text = f"{summary.source_count} source{'s' if summary.source_count != 1 else ''}"
             
             # Use proper tree formatting
             prefix = "├─" if summary != results.placement_summaries[-1] else "└─"
-            line = f"{prefix} {rel_path:<30} {instruction_text} from {source_text}"
+            line = f"{prefix} {rel_path:<30} {content_text} from {source_text}"
             
             if self.use_color:
                 lines.append(self._styled(line, "dim"))
@@ -191,7 +191,7 @@ class CompilationFormatter:
         # Standard analysis
         lines.extend(self._format_project_discovery(results.project_analysis))
         lines.append("")
-        lines.extend(self._format_optimization_progress(results.optimization_decisions))
+        lines.extend(self._format_optimization_progress(results.optimization_decisions, results.project_analysis))
         lines.append("")
         
         # Dry run specific output
@@ -213,6 +213,14 @@ class CompilationFormatter:
         else:
             lines.append("Analyzing project structure...")
         
+        # Constitution detection (first priority)
+        if analysis.constitution_detected:
+            constitution_line = f"├─ Constitution detected: {analysis.constitution_path}"
+            if self.use_color:
+                lines.append(self._styled(constitution_line, "dim"))
+            else:
+                lines.append(constitution_line)
+        
         # Structure tree with more detailed information
         file_types_summary = analysis.get_file_types_summary() if hasattr(analysis, 'get_file_types_summary') else "various"
         tree_lines = [
@@ -229,7 +237,7 @@ class CompilationFormatter:
         
         return lines
     
-    def _format_optimization_progress(self, decisions: List[OptimizationDecision]) -> List[str]:
+    def _format_optimization_progress(self, decisions: List[OptimizationDecision], analysis=None) -> List[str]:
         """Format optimization progress display using Rich table for better readability."""
         lines = []
         
@@ -246,6 +254,16 @@ class CompilationFormatter:
             table.add_column("Coverage", style="dim", width=10)
             table.add_column("Placement", style="green", width=25)
             table.add_column("Metrics", style="dim", width=20)
+            
+            # Add constitution row first if detected
+            if analysis and analysis.constitution_detected:
+                table.add_row(
+                    "**",
+                    "constitution.md",
+                    "ALL",
+                    "./AGENTS.md",
+                    "rel: 100%"
+                )
             
             for decision in decisions:
                 pattern_display = decision.pattern if decision.pattern else "(global)"
@@ -288,6 +306,10 @@ class CompilationFormatter:
                     lines.extend(table_output.split('\n'))
         else:
             # Fallback to simplified text display for non-Rich environments
+            # Add constitution first if detected
+            if analysis and analysis.constitution_detected:
+                lines.append("**                        constitution.md     ALL        → ./AGENTS.md                (rel: 100%)")
+            
             for decision in decisions:
                 pattern_display = decision.pattern if decision.pattern else "(global)"
                 
@@ -376,12 +398,12 @@ class CompilationFormatter:
         # Show distribution of AGENTS.md files
         for summary in results.placement_summaries:
             rel_path = str(summary.get_relative_path(Path.cwd()))
-            instruction_text = f"{summary.instruction_count} instruction{'s' if summary.instruction_count != 1 else ''}"
+            content_text = self._get_placement_description(summary)
             source_text = f"{summary.source_count} source{'s' if summary.source_count != 1 else ''}"
             
             # Use proper tree formatting
             prefix = "├─" if summary != results.placement_summaries[-1] else "└─"
-            line = f"{prefix} {rel_path:<30} {instruction_text} from {source_text}"
+            line = f"{prefix} {rel_path:<30} {content_text} from {source_text}"
             
             if self.use_color:
                 lines.append(self._styled(line, "dim"))
@@ -850,6 +872,32 @@ Pollution Level:
         lines.append("   • Better low efficiency than missing instructions")
         
         return lines
+
+    def _get_placement_description(self, summary) -> str:
+        """Get description of what's included in a placement summary.
+        
+        Args:
+            summary: PlacementSummary object
+            
+        Returns:
+            str: Description like "Constitution and 1 instruction" or "Constitution"
+        """
+        # Check if constitution is included
+        has_constitution = any("constitution.md" in source for source in summary.sources)
+        
+        # Build the description based on what's included
+        parts = []
+        if has_constitution:
+            parts.append("Constitution")
+        
+        if summary.instruction_count > 0:
+            instruction_text = f"{summary.instruction_count} instruction{'s' if summary.instruction_count != 1 else ''}"
+            parts.append(instruction_text)
+        
+        if parts:
+            return " and ".join(parts)
+        else:
+            return "content"
 
     def _styled(self, text: str, style: str) -> str:
         """Apply styling to text with rich fallback."""

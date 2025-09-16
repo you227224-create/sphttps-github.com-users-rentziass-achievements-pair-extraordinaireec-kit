@@ -113,8 +113,8 @@ def run_workflow(workflow_name, params=None, base_dir=None):
     params = params or {}
     
     # Extract runtime and model information
-    runtime_name = params.pop('_runtime', None)
-    fallback_llm = params.pop('_llm', None)
+    runtime_name = params.get('_runtime', None)
+    fallback_llm = params.get('_llm', None)
     
     # Find the workflow
     workflow = find_workflow_by_name(workflow_name, base_dir)

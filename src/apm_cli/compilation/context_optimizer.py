@@ -317,32 +317,57 @@ class ContextOptimizer:
             file_types.update(analysis.file_types)
             total_files += analysis.total_files
         
+        # Check for constitution
+        from .constitution import find_constitution
+        constitution_path = find_constitution(Path(self.base_dir))
+        constitution_detected = constitution_path.exists()
+        
         project_analysis = ProjectAnalysis(
             directories_scanned=len(self._directory_cache),
             files_analyzed=total_files,
             file_types_detected=file_types,
             instruction_patterns_detected=len(self._optimization_decisions),
-            max_depth=max((a.depth for a in self._directory_cache.values()), default=0)
+            max_depth=max((a.depth for a in self._directory_cache.values()), default=0),
+            constitution_detected=constitution_detected,
+            constitution_path=str(constitution_path.relative_to(self.base_dir)) if constitution_detected else None
         )
         
         # Create placement summaries
         placement_summaries = []
-        for directory, instructions in placement_map.items():
-            # Count unique sources
-            sources = set()
-            for instruction in instructions:
-                if hasattr(instruction, 'source_file') and instruction.source_file:
-                    sources.add(instruction.source_file)
-                elif hasattr(instruction, 'source') and instruction.source:
-                    sources.add(str(instruction.source))
-            
+        
+        # Special case: if no instructions but constitution exists, create root placement
+        if not placement_map and constitution_detected:
+            # Create a root placement for constitution-only projects
+            root_sources = {"constitution.md"}
             summary = PlacementSummary(
-                path=directory,
-                instruction_count=len(instructions),
-                source_count=len(sources),
-                sources=list(sources)
+                path=Path(self.base_dir),
+                instruction_count=0,
+                source_count=len(root_sources),
+                sources=list(root_sources)
             )
             placement_summaries.append(summary)
+        else:
+            # Normal case: create summaries for each placement in the map
+            for directory, instructions in placement_map.items():
+                # Count unique sources
+                sources = set()
+                for instruction in instructions:
+                    if hasattr(instruction, 'source_file') and instruction.source_file:
+                        sources.add(instruction.source_file)
+                    elif hasattr(instruction, 'source') and instruction.source:
+                        sources.add(str(instruction.source))
+                
+                # Add constitution as a source if it exists and will be injected
+                if constitution_detected:
+                    sources.add("constitution.md")
+                
+                summary = PlacementSummary(
+                    path=directory,
+                    instruction_count=len(instructions),
+                    source_count=len(sources),
+                    sources=list(sources)
+                )
+                placement_summaries.append(summary)
         
         # Get optimization statistics
         optimization_stats = self.get_optimization_stats(placement_map)

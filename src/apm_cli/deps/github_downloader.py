@@ -153,7 +153,8 @@ class GitHubPackageDownloader:
             error_msg += "Please check repository access permissions and authentication setup."
         
         if last_error:
-            error_msg += f" Last error: {last_error}"
+            sanitized_error = self._sanitize_git_error(str(last_error))
+            error_msg += f" Last error: {sanitized_error}"
         
         raise RuntimeError(error_msg)
     
@@ -197,7 +198,8 @@ class GitHubPackageDownloader:
                     resolved_commit = commit.hexsha
                     ref_name = ref
                 except Exception as e:
-                    raise ValueError(f"Could not resolve commit '{ref}' in repository {dep_ref.repo_url}: {e}")
+                    sanitized_error = self._sanitize_git_error(str(e))
+                    raise ValueError(f"Could not resolve commit '{ref}' in repository {dep_ref.repo_url}: {sanitized_error}")
             else:
                 # For branches and tags, try shallow clone first
                 try:
@@ -236,7 +238,8 @@ class GitHubPackageDownloader:
                                     raise ValueError(f"Reference '{ref}' not found in repository {dep_ref.repo_url}")
                         
                         except Exception as e:
-                            raise ValueError(f"Could not resolve reference '{ref}' in repository {dep_ref.repo_url}: {e}")
+                            sanitized_error = self._sanitize_git_error(str(e))
+                            raise ValueError(f"Could not resolve reference '{ref}' in repository {dep_ref.repo_url}: {sanitized_error}")
                     
                     except GitCommandError as e:
                         # Check if this might be a private repository access issue
@@ -249,7 +252,8 @@ class GitHubPackageDownloader:
                                 error_msg += "Authentication failed. Please check your GitHub token permissions."
                             raise RuntimeError(error_msg)
                         else:
-                            raise RuntimeError(f"Failed to clone repository {dep_ref.repo_url}: {e}")
+                            sanitized_error = self._sanitize_git_error(str(e))
+                            raise RuntimeError(f"Failed to clone repository {dep_ref.repo_url}: {sanitized_error}")
                     
         finally:
             # Clean up temporary directory
@@ -326,7 +330,8 @@ class GitHubPackageDownloader:
                     error_msg += "Authentication failed. Please check your GitHub token permissions."
                 raise RuntimeError(error_msg)
             else:
-                raise RuntimeError(f"Failed to clone repository {dep_ref.repo_url}: {e}")
+                sanitized_error = self._sanitize_git_error(str(e))
+                raise RuntimeError(f"Failed to clone repository {dep_ref.repo_url}: {sanitized_error}")
         except RuntimeError:
             # Re-raise RuntimeError from _clone_with_fallback
             raise

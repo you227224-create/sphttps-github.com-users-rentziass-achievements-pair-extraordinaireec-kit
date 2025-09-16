@@ -8,7 +8,7 @@ deterministic Build ID (content hash) is substituted post-generation.
 # Constitution injection markers
 CONSTITUTION_MARKER_BEGIN = "<!-- SPEC-KIT CONSTITUTION: BEGIN -->"
 CONSTITUTION_MARKER_END = "<!-- SPEC-KIT CONSTITUTION: END -->"
-CONSTITUTION_RELATIVE_PATH = "memory/constitution.md"  # repo-root relative
+CONSTITUTION_RELATIVE_PATH = ".specify/memory/constitution.md"  # repo-root relative
 
 # Build ID placeholder & regex pattern (line-level). The placeholder line is
 # inserted during initial template generation; after all transformations

@@ -23,6 +23,8 @@ class ProjectAnalysis:
     file_types_detected: Set[str]
     instruction_patterns_detected: int
     max_depth: int
+    constitution_detected: bool = False
+    constitution_path: Optional[str] = None
     
     def get_file_types_summary(self) -> str:
         """Get a concise summary of detected file types."""

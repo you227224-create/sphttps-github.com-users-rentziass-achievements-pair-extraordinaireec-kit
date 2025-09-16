@@ -333,8 +333,9 @@ class ScriptRunner:
             if '=' in arg and not actual_command_args:
                 # This looks like an environment variable and we haven't started the actual command yet
                 key, value = arg.split('=', 1)
-                # Validate this looks like a valid environment variable name
-                if key.isidentifier() or key.replace('_', '').isalnum():
+                # Validate environment variable name with restrictive pattern
+                # Only allow uppercase letters, numbers, and underscores, starting with letter or underscore
+                if re.match(r'^[A-Z_][A-Z0-9_]*$', key):
                     env_vars[key] = value
                     continue
             # Once we hit a non-env-var argument, everything else is part of the command
