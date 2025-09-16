@@ -130,14 +130,22 @@ specify init my-project --ai claude --debug
 specify check
 ```
 
-## � APM Integration
+## 📦 APM Integration - NPM for Agent Context
+
+**Context as Code Packages**: Package and share agent intelligence like npm packages. With APM, your agents get:
+
+- **Team knowledge** from reusable context packages
+- **Optimized context** through mathematical relevance scoring  
+- **Universal compatibility** via dynamically generated Agents.md files
+
+[Complete Context Management Guide →](docs/context-management.md)
 
 Spec Kit includes full APM (Agent Package Manager) functionality for managing modular context packages and files:
 
 ### Unified Initialization
 ```bash
-# Creates both SDD and APM structures
-specify init my-project --ai claude
+# The --with-apm flag creates both SDD and APM structures 
+specify init my-project --ai claude --with-apm
 ```
 
 ### APM Commands
