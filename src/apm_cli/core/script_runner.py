@@ -335,7 +335,7 @@ class ScriptRunner:
                 key, value = arg.split('=', 1)
                 # Validate environment variable name with restrictive pattern
                 # Only allow uppercase letters, numbers, and underscores, starting with letter or underscore
-                if re.match(r'^[A-Z_][A-Z0-9_]*$', key):
+                if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', key):
                     env_vars[key] = value
                     continue
             # Once we hit a non-env-var argument, everything else is part of the command
