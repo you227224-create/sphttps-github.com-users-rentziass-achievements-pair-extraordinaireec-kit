@@ -75,6 +75,10 @@ class DependencyReference:
         if not dependency_str.strip():
             raise ValueError("Empty dependency string")
         
+        # Check for control characters (newlines, tabs, etc.)
+        if any(ord(c) < 32 for c in dependency_str):
+            raise ValueError("Dependency string contains invalid control characters")
+        
         # Handle SSH URLs first (before @ processing) to avoid conflict with alias separator
         original_str = dependency_str
         if dependency_str.startswith("git@github.com:"):
@@ -191,6 +195,10 @@ class DependencyReference:
         # Validate repo format (should be user/repo)
         if not re.match(r'^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$', repo_url):
             raise ValueError(f"Invalid repository format: {repo_url}. Expected 'user/repo'")
+        
+        # Validate alias characters if present
+        if alias and not re.match(r'^[a-zA-Z0-9._-]+$', alias):
+            raise ValueError(f"Invalid alias: {alias}. Aliases can only contain letters, numbers, dots, underscores, and hyphens")
         
         return cls(repo_url=repo_url, reference=reference, alias=alias)
     
